@@ -8,3 +8,6 @@ slx文件：
 先运行prepare2.slx，关闭，主要是为了导入部分参数
 然后运行power_simple.slx
 建议2017b以上，2016b应该也行，导出为低版本了，但没有试过
+
+new idea: 参考文章Modelling of Interconnected Critical Infrastructure Systems Using Complex Network Theory
+if intersted，please contact me：lzlhdgsc@gmail.com
