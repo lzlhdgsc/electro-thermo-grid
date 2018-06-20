@@ -1,15 +1,146 @@
+%initialize the microgrid
 gridm=zeros(8,8);
 gridm=init_grid(gridm);
-update_grid(gridm);
-in=update_in(gridm);
-a=cluster(gridm,in);
-b=link(gridm);
-d=route_area(b,5,7);
-[f,c]=route_shortest(b,5,7);
-e=between_center(b,2)
+G=graph(gridm);
+%plot(G); 
+%-----------
+%initialize the properity of mocrogrid
+sizem=size(gridm);
+length=sizem(1);
+%0:generator,1:load,2:storage,3:transformer,4:others
+%new load can directly be added to an old load node
+properity=[0,3,3,0,0,1,2,1];
+P_list=[15,-0.1,-0.15,2.5,4,-20,0.1,-1.5];
+%Q_list=[15,-0.1,-0.15,4.5,8,-20,0.1,-1.5];
+%Rup_list=[1.5,0,0,-2.5,-4,-6,6,0];%WAVE transient
+%Rdown_list=[1.5,0,0,-2,-4,-6,6,0];
+R_list=[1.5,0,0,-2.5,-4,-2,7,0];
+C_list=zeros(1,length);C_list(7)=100;
+%Rram_list=[1,];%ramp rate
+%Rram_sum=0;
+%---------------------------
+%initialize the probablity of change
+s=RandStream.getGlobalStream;
+p_addload=0.3;
+p_error=0.01;
+P_sum=0;
+%Q_sum=0;
+R_sum=0;
 
-function newgridm=update_grid(gridm)
-newgridm=gridm;
+n=100;
+used=ones(1,length);
+%新增节点,原有节点有功/无功/波动冗余量 不变
+addload_time=0;
+for i=1:n 
+    if rand(s)<p_addload
+        addload_time=addload_time+1;
+        addload=rand(s)*(-2);
+        temp_compare=zeros(1,length);
+        for j=1:length
+            if properity(j)==1 && addload>P_list(j) && used(j)~=0
+                temp_compare(j)=1;
+            end
+        end
+        if sum(temp_compare)~=0
+            temp_index=0;temp_in=inf;in=update_in(gridm);
+            %temp_G=addnode(temp_G,1); temp_G=addedge(temp_G,j,);
+            for j=1:length
+                if temp_compare(j)~=0 && temp_in>abs(in(j)*P_list(j))
+                    temp_index=j;
+                    temp_in=abs(in(j)*P_list(j));
+                end
+            end
+            P_list(temp_index)= P_list(temp_index)+addload;
+            used(temp_index)=0;     
+        else 
+            for j=1:length
+                if properity(j)==3 && used(j)>-2
+                    temp_compare(j)=1;
+                end
+            end
+            if sum(temp_compare)~=0
+                temp_G=G;temp_efficiency=0;temp_index=0;
+                for j=1:length
+                    if properity(j)==3 && (temp_compare(j)~=0)
+                        temp_G=addedge(temp_G,j,length+1,1);
+                        if efficiency(back_up(temp_G))<temp_efficiency
+                            temp_G=rmedge(temp_G,j,length+1);
+                            temp_G=rmnode(temp_G,length+1);
+                        else
+                            temp_index=j;
+                        end
+                    end  
+                end
+                G=temp_G;
+                used(j)=used(j)-1;
+                used=[used,1];
+                gridm=back_up(G);
+                length=length+1;
+                P_list=[P_list,addload];
+                R_list=[R_list,addload*0.1];
+                properity=[properity,1];
+            else
+                temp_G=G;temp_efficiency=0;temp_index=0;
+                for j=1:length
+                   if properity(j)==0 || properity(j)==2
+                        temp_G=addedge(temp_G,j,length+1,1);
+                        temp_G=addedge(temp_G,length+1,length+2,1);
+                        if efficiency(back_up(temp_G))<temp_efficiency
+                            temp_G=rmedge(temp_G,j,length+1);
+                            temp_G=rmedge(temp_G,length+1,length+2);
+                            temp_G=rmnode(temp_G,length+1);
+                            temp_G=rmnode(temp_G,length+2);
+                        else
+                            temp_index=j;
+                        end
+                   end 
+                end
+                used(j)=used(j)-1;
+                used=[used,1,1];
+                G=temp_G;
+                gridm=back_up(G);
+                length=length+2;
+                P_list=[P_list,-0.1,addload];
+                R_list=[R_load,0,addload*0.1];
+                properity=[properity,3,1];
+            end
+        end
+    end
+end
+
+plot(G);
+
+
+function mat=back_up(G)
+mat=full(adjacency(G));
+end
+
+function newproperity=update_properity(properity,index,value)
+newproperity=properity;
+if index==0
+    newproperity=[value,properity];
+else
+    if index==list_length(properity)
+        newproperity=[properity,value];
+    else
+        newproperity=[properity(1,1:index),value,properity(1,index+1:list_length(properity))];
+    end
+end
+end
+
+function length=list_length(mat)
+[~,length]=size(mat);
+end
+
+function newgridm=update_grid(gridm,x,y)
+sizem=size(gridm);
+length=sizem(1);
+newgridm=zeros(length+1,length+1);
+newgridm(1:length,1:length)=gridm;
+newgridm(length+1,x)=1;
+newgridm(length+1,y)=1;
+newgridm(x,length+1)=1;
+newgridm(y,length+1)=1;
 end
 
 function newgridm=init_grid(gridm)
@@ -38,10 +169,11 @@ for i=1:length
 end
 end
 
-function [factor_cluster,in] =cluster(gridm,in)
+function [factor_cluster,in] =cluster(gridm)
 sizem=size(gridm);
 length=sizem(1);
 factor_cluster=zeros(1,length);
+in=update_in(gridm);
 for i=1:length
     if in(1,i)<=1
         factor_cluster(1,i)=0;
@@ -205,6 +337,49 @@ for i=1:length
         end
     end
 end
-                                   
+
 end
 
+function eff=efficiency(linkm)
+sizem=size(linkm);
+length=sizem(1);
+eff=0;
+for i=1:length
+    for j=1:i
+        if j==i 
+            continue;
+        else
+            [route_length,routelist]=route_shortest(linkm,i,j);
+        end
+        eff=eff+1/route_length;
+    end  
+end
+eff=eff/(length-1)/length;        
+end
+
+%update_grid(gridm);
+%{
+in=update_in(gridm);
+a=cluster(gridm);
+b=link(gridm);
+d=route_area(b,5,7);
+[f,c]=route_shortest(b,5,7);
+e=between_center(b,3);
+g=efficiency(b);
+
+Ce=0.5;
+Cl=1;
+Cs=0.8;
+Me=1;
+Ml=2;
+Ms=0.8;
+Pe=0.1;
+Pl=0.5;
+Ps=0.2;
+
+bclist=zeros(1,8);
+for i=1:8
+    bclist(1,i)=between_center(b,i);
+end
+result=bclist;
+%}
